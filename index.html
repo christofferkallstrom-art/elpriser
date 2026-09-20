@@ -4,61 +4,145 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Elpris & Optimering</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Elpriser">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; background: #f0f2f5; margin: 0; }
-    .card { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 14px; }
-    h2 { font-size: 1.15rem; margin: 0 0 12px 0; color: #1e293b; }
-    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #475569; }
-    select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; background: #fff; }
-    .highlight-box { border-left: 4px solid; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
-    .box-ev { background: #eff6ff; border-color: #3b82f6; }
-    .box-appliance { background: #f0fdf4; border-color: #22c55e; }
-    .highlight-title { font-weight: 700; margin-bottom: 4px; }
-    .price-tag { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 6px; }
-    .status-text { font-size: 0.85rem; color: #64748b; margin-bottom: 12px; }
-    .details { font-size: 0.8rem; color: #64748b; margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+      padding: 12px; 
+      background: #f0f2f5; 
+      margin: 0; 
+    }
+    .card { 
+      background: white; 
+      padding: 16px; 
+      border-radius: 12px; 
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08); 
+      margin-bottom: 12px; 
+    }
+    h2 { 
+      font-size: 1.05rem; 
+      margin: 0 0 10px 0; 
+      color: #1e293b; 
+    }
+    label { 
+      display: block; 
+      font-size: 0.8rem; 
+      font-weight: 600; 
+      margin-bottom: 6px; 
+      color: #475569; 
+    }
+    select { 
+      width: 100%; 
+      padding: 10px; 
+      border: 1px solid #cbd5e1; 
+      border-radius: 8px; 
+      font-size: 1rem; 
+      background: #fff; 
+    }
+    .status-text { 
+      font-size: 0.85rem; 
+      color: #64748b; 
+      margin-bottom: 10px; 
+    }
+    .day-header { 
+      font-size: 0.95rem; 
+      font-weight: 700; 
+      color: #334155; 
+      margin: 14px 0 8px 0; 
+      border-bottom: 2px solid #e2e8f0; 
+      padding-bottom: 4px; 
+    }
+    .hour-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    @media (min-width: 500px) {
+      .hour-grid { 
+        grid-template-columns: repeat(6, 1fr); 
+      }
+    }
+    .hour-box {
+      border-radius: 6px;
+      padding: 8px 4px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .hour-label { 
+      font-size: 0.75rem; 
+      font-weight: 600; 
+      opacity: 0.9; 
+      margin-bottom: 2px; 
+    }
+    .hour-price { 
+      font-size: 0.95rem; 
+      font-weight: 800; 
+    }
+    .details { 
+      font-size: 0.8rem; 
+      color: #64748b; 
+      margin-top: 10px; 
+      border-top: 1px solid #e2e8f0; 
+      padding-top: 8px; 
+    }
   </style>
 </head>
 <body>
 
-  <!-- Platsväljare -->
+  <!-- Profilväljare -->
   <div class="card">
     <label for="profileSelect">Välj fastighet:</label>
     <select id="profileSelect" onchange="onProfileChange()">
       <option value="fjallbacka">Fjällbacka (Ellevio + Godel)</option>
       <option value="stockholm">Stockholm (Vattenfall)</option>
+      <option value="harnosand">Härnösand (HEMAB Småhus)</option>
     </select>
   </div>
 
-  <!-- Resultat & Rekommendationer -->
+  <!-- Timpriser -->
   <div class="card">
-    <h2 id="viewTitle">Bästa tider</h2>
-    <div id="status" class="status-text">Hämtar elpriser...</div>
-    <div id="recommendations"></div>
+    <h2 id="viewTitle">Timpriser</h2>
+    <div id="status" class="status-text">Hämtar data...</div>
+    <div id="gridContainer"></div>
     <div id="contractInfo" class="details"></div>
   </div>
 
   <script>
-    // Fasta parametrar (exkl. moms, 25 % moms läggs på automatiskt i beräkningen)
+    // Exakta avtalsparametrar exkl. moms (25% moms läggs på automatiskt)
     const profiles = {
       fjallbacka: {
         name: "Fjällbacka (Ellevio + Godel)",
         zone: "SE3",
         margin: 2.5,     // Godels påslag (öre/kWh)
-        grid: 20.8,      // Ellevios överföring (26 öre inkl. moms = 20.8 exkl. moms)
-        energyTax: 36.0  // Statlig skatt (45 öre inkl. moms = 36.0 exkl. moms)
+        grid: 20.8,      // Ellevio överföring exkl moms (26 öre inkl moms)
+        energyTax: 36.0  // Statlig skatt SE3
       },
       stockholm: {
         name: "Stockholm (Vattenfall)",
         zone: "SE3",
-        margin: 12.12,   // Rörliga kostnader (3.72) + påslag spot (7.0) + elcertifikat (1.40)
-        grid: 35.6,      // Elöverföring
-        energyTax: 36.0  // Statlig energiskatt
+        margin: 12.12,   // Rörliga 3.72 + spotpåslag 7.0 + elcert 1.40
+        grid: 35.6,      // Vattenfall elöverföring
+        energyTax: 36.0  // Statlig skatt SE3
+      },
+      harnosand: {
+        name: "Härnösand (HEMAB Småhus)",
+        zone: "SE2",
+        margin: 5.0,     // HEMAB standardpåslag inkl elcertifikat
+        grid: 23.0,      // HEMAB överföring småhus
+        energyTax: 26.4  // Reducerad energiskatt Norrland
       }
     };
 
     let currentProfile = profiles.fjallbacka;
-    let cachedPrices = null;
+    let rawPrices = [];
 
     function formatDate(date) {
       const y = date.getFullYear();
@@ -70,105 +154,135 @@
     function calculateTotalCost(spotKr) {
       const spotOre = spotKr * 100;
       const subtotal = spotOre + currentProfile.margin + currentProfile.grid + currentProfile.energyTax;
-      return subtotal * 1.25; // Inklusive 25 % moms
+      return subtotal * 1.25; // 25% moms
     }
 
-    async function fetchAllPrices() {
+    async function fetchPrices(zone) {
       const today = new Date();
       const tomorrow = new Date();
       tomorrow.setDate(today.getDate() + 1);
 
       const urls = [
-        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(today)}_SE3.json`,
-        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(tomorrow)}_SE3.json`
+        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(today)}_${zone}.json`,
+        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(tomorrow)}_${zone}.json`
       ];
 
-      let allData = [];
+      let data = [];
       try {
-        const r1 = await fetch(urls[0]);
-        if (r1.ok) allData = allData.concat(await r1.json());
+        const res1 = await fetch(urls[0]);
+        if (res1.ok) data = data.concat(await res1.json());
       } catch (e) {}
 
       try {
-        const r2 = await fetch(urls[1]);
-        if (r2.ok) allData = allData.concat(await r2.json());
+        const res2 = await fetch(urls[1]);
+        if (res2.ok) data = data.concat(await res2.json());
       } catch (e) {}
 
-      return allData;
+      return data;
     }
 
-    function findCheapestWindow(data, hours) {
-      const slots = hours * 4; // 15-minutersintervall
-      if (data.length < slots) return null;
+    function aggregateToHours(data) {
+      const hourly = [];
+      for (let i = 0; i < data.length; i += 4) {
+        const chunk = data.slice(i, i + 4);
+        if (chunk.length === 0) break;
 
-      let minSum = Infinity;
-      let bestIndex = 0;
+        let sumPrice = 0;
+        chunk.forEach(slot => {
+          sumPrice += calculateTotalCost(slot.SEK_per_kWh);
+        });
 
-      for (let i = 0; i <= data.length - slots; i++) {
-        let sum = 0;
-        for (let j = 0; j < slots; j++) {
-          sum += calculateTotalCost(data[i + j].SEK_per_kWh);
-        }
-        if (sum < minSum) {
-          minSum = sum;
-          bestIndex = i;
-        }
+        const avgPrice = sumPrice / chunk.length;
+        const startDate = new Date(chunk[0].time_start);
+
+        const localYear = startDate.getFullYear();
+        const localMonth = String(startDate.getMonth() + 1).padStart(2, '0');
+        const localDay = String(startDate.getDate()).padStart(2, '0');
+        const dayKey = `${localYear}-${localMonth}-${localDay}`;
+
+        hourly.push({
+          date: startDate,
+          dayKey: dayKey,
+          hourStr: startDate.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }),
+          price: avgPrice
+        });
+      }
+      return hourly;
+    }
+
+    function renderUI() {
+      if (!rawPrices.length) return;
+
+      document.getElementById('viewTitle').innerText = `Timpriser (${currentProfile.name})`;
+      const hours = aggregateToHours(rawPrices);
+
+      const days = {};
+      hours.forEach(h => {
+        if (!days[h.dayKey]) days[h.dayKey] = [];
+        days[h.dayKey].push(h);
+      });
+
+      let html = '';
+
+      for (const [dayKey, dayHours] of Object.entries(days)) {
+        const sorted = [...dayHours].sort((a, b) => a.price - b.price);
+        const count = sorted.length;
+
+        const colorMap = new Map();
+        sorted.forEach((item, index) => {
+          const rank = index / count;
+          if (rank < 0.25) {
+            colorMap.set(item, { bg: '#417505', text: '#ffffff' }); // Q1
+          } else if (rank < 0.50) {
+            colorMap.set(item, { bg: '#90B869', text: '#000000' }); // Q2
+          } else if (rank < 0.75) {
+            colorMap.set(item, { bg: '#F0BD6F', text: '#000000' }); // Q3
+          } else {
+            colorMap.set(item, { bg: '#E47272', text: '#000000' }); // Q4
+          }
+        });
+
+        const parts = dayKey.split('-');
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
+        const dayTitle = d.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+        html += `<div class="day-header">${dayTitle.charAt(0).toUpperCase() + dayTitle.slice(1)}</div>`;
+        html += `<div class="hour-grid">`;
+
+        dayHours.forEach(h => {
+          const col = colorMap.get(h);
+          html += `
+            <div class="hour-box" style="background-color: ${col.bg}; color: ${col.text};">
+              <span class="hour-label">${h.hourStr}</span>
+              <span class="hour-price">${h.price.toFixed(1)}</span>
+            </div>
+          `;
+        });
+
+        html += `</div>`;
       }
 
-      return {
-        startTime: new Date(data[bestIndex].time_start),
-        endTime: new Date(data[bestIndex + slots - 1].time_end),
-        avgPrice: minSum / slots
-      };
-    }
+      document.getElementById('gridContainer').innerHTML = html;
+      document.getElementById('status').innerText = `Område: ${currentProfile.zone}. Timpriser per dygn (6 h/färg). Alla priser i öre/kWh inkl. moms och påslag.`;
 
-    function formatTime(d) {
-      const dag = d.toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
-      const tid = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-      return `${dag} kl ${tid}`;
-    }
-
-    function updateView() {
-      if (!cachedPrices) return;
-
-      document.getElementById('viewTitle').innerText = `Bästa tider (${currentProfile.name})`;
-
-      const now = new Date();
-      const futureData = cachedPrices.filter(d => new Date(d.time_end) > now);
-
-      const hoursAvailable = (futureData.length / 4).toFixed(0);
-      document.getElementById('status').innerText = `Analyserar ${hoursAvailable} timmar framåt (inkl. moms, nätavgift och skatt).`;
-
-      const ev = findCheapestWindow(futureData, 4);
-      const app = findCheapestWindow(futureData, 2);
-
-      const recEl = document.getElementById('recommendations');
-      recEl.innerHTML = `
-        <div class="highlight-box box-ev">
-          <div class="highlight-title" style="color: #1d4ed8;">🚗 Elbilsladdning (4 timmar)</div>
-          <div>Kör mellan: <strong>${formatTime(ev.startTime)}</strong> – <strong>${formatTime(ev.endTime)}</strong></div>
-          <div class="price-tag">${ev.avgPrice.toFixed(1)} öre/kWh</div>
-        </div>
-
-        <div class="highlight-box box-appliance">
-          <div class="highlight-title" style="color: #15803d;">🧺 Tvätt & Disk (2 timmar)</div>
-          <div>Kör mellan: <strong>${formatTime(app.startTime)}</strong> – <strong>${formatTime(app.endTime)}</strong></div>
-          <div class="price-tag">${app.avgPrice.toFixed(1)} öre/kWh</div>
-        </div>
-      `;
-
-      // Fast info om avtalet längst ner som referens
       const fixedExtra = ((currentProfile.margin + currentProfile.grid + currentProfile.energyTax) * 1.25).toFixed(1);
       document.getElementById('contractInfo').innerHTML = `
         Fasta påslag för vald profil: <strong>${fixedExtra} öre/kWh</strong> inkl. moms (nät + påslag + skatt).
       `;
     }
 
-    function onProfileChange() {
+    async function onProfileChange() {
       const selected = document.getElementById('profileSelect').value;
+      const previousZone = currentProfile.zone;
       currentProfile = profiles[selected];
       localStorage.setItem('selectedProfile', selected);
-      updateView();
+
+      // Hämta ny data om vi växlar mellan SE2 och SE3
+      if (currentProfile.zone !== previousZone) {
+        document.getElementById('status').innerText = `Hämtar data för ${currentProfile.zone}...`;
+        rawPrices = await fetchPrices(currentProfile.zone);
+      }
+      renderUI();
     }
 
     async function init() {
@@ -177,8 +291,12 @@
         currentProfile = profiles[saved];
         document.getElementById('profileSelect').value = saved;
       }
-      cachedPrices = await fetchAllPrices();
-      updateView();
+      rawPrices = await fetchPrices(currentProfile.zone);
+      renderUI();
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+      }
     }
 
     init();
