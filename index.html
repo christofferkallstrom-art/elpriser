@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elpris & Optimering</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; background: #f0f2f5; margin: 0; }
+    .card { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 14px; }
+    h2 { font-size: 1.15rem; margin: 0 0 12px 0; color: #1e293b; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; color: #475569; }
+    select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; background: #fff; }
+    .highlight-box { border-left: 4px solid; padding: 14px; border-radius: 8px; margin-bottom: 12px; }
+    .box-ev { background: #eff6ff; border-color: #3b82f6; }
+    .box-appliance { background: #f0fdf4; border-color: #22c55e; }
+    .highlight-title { font-weight: 700; margin-bottom: 4px; }
+    .price-tag { font-size: 1.35rem; font-weight: 700; color: #0f172a; margin-top: 6px; }
+    .status-text { font-size: 0.85rem; color: #64748b; margin-bottom: 12px; }
+    .details { font-size: 0.8rem; color: #64748b; margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- Platsväljare -->
+  <div class="card">
+    <label for="profileSelect">Välj fastighet:</label>
+    <select id="profileSelect" onchange="onProfileChange()">
+      <option value="fjallbacka">Fjällbacka (Ellevio + Godel)</option>
+      <option value="stockholm">Stockholm (Vattenfall)</option>
+    </select>
+  </div>
+
+  <!-- Resultat & Rekommendationer -->
+  <div class="card">
+    <h2 id="viewTitle">Bästa tider</h2>
+    <div id="status" class="status-text">Hämtar elpriser...</div>
+    <div id="recommendations"></div>
+    <div id="contractInfo" class="details"></div>
+  </div>
+
+  <script>
+    // Fasta parametrar (exkl. moms, 25 % moms läggs på automatiskt i beräkningen)
+    const profiles = {
+      fjallbacka: {
+        name: "Fjällbacka (Ellevio + Godel)",
+        zone: "SE3",
+        margin: 2.5,     // Godels påslag (öre/kWh)
+        grid: 20.8,      // Ellevios överföring (26 öre inkl. moms = 20.8 exkl. moms)
+        energyTax: 36.0  // Statlig skatt (45 öre inkl. moms = 36.0 exkl. moms)
+      },
+      stockholm: {
+        name: "Stockholm (Vattenfall)",
+        zone: "SE3",
+        margin: 12.12,   // Rörliga kostnader (3.72) + påslag spot (7.0) + elcertifikat (1.40)
+        grid: 35.6,      // Elöverföring
+        energyTax: 36.0  // Statlig energiskatt
+      }
+    };
+
+    let currentProfile = profiles.fjallbacka;
+    let cachedPrices = null;
+
+    function formatDate(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}/${m}-${d}`;
+    }
+
+    function calculateTotalCost(spotKr) {
+      const spotOre = spotKr * 100;
+      const subtotal = spotOre + currentProfile.margin + currentProfile.grid + currentProfile.energyTax;
+      return subtotal * 1.25; // Inklusive 25 % moms
+    }
+
+    async function fetchAllPrices() {
+      const today = new Date();
+      const tomorrow = new Date();
+      tomorrow.setDate(today.getDate() + 1);
+
+      const urls = [
+        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(today)}_SE3.json`,
+        `https://www.elprisetjustnu.se/api/v1/prices/${formatDate(tomorrow)}_SE3.json`
+      ];
+
+      let allData = [];
+      try {
+        const r1 = await fetch(urls[0]);
+        if (r1.ok) allData = allData.concat(await r1.json());
+      } catch (e) {}
+
+      try {
+        const r2 = await fetch(urls[1]);
+        if (r2.ok) allData = allData.concat(await r2.json());
+      } catch (e) {}
+
+      return allData;
+    }
+
+    function findCheapestWindow(data, hours) {
+      const slots = hours * 4; // 15-minutersintervall
+      if (data.length < slots) return null;
+
+      let minSum = Infinity;
+      let bestIndex = 0;
+
+      for (let i = 0; i <= data.length - slots; i++) {
+        let sum = 0;
+        for (let j = 0; j < slots; j++) {
+          sum += calculateTotalCost(data[i + j].SEK_per_kWh);
+        }
+        if (sum < minSum) {
+          minSum = sum;
+          bestIndex = i;
+        }
+      }
+
+      return {
+        startTime: new Date(data[bestIndex].time_start),
+        endTime: new Date(data[bestIndex + slots - 1].time_end),
+        avgPrice: minSum / slots
+      };
+    }
+
+    function formatTime(d) {
+      const dag = d.toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
+      const tid = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+      return `${dag} kl ${tid}`;
+    }
+
+    function updateView() {
+      if (!cachedPrices) return;
+
+      document.getElementById('viewTitle').innerText = `Bästa tider (${currentProfile.name})`;
+
+      const now = new Date();
+      const futureData = cachedPrices.filter(d => new Date(d.time_end) > now);
+
+      const hoursAvailable = (futureData.length / 4).toFixed(0);
+      document.getElementById('status').innerText = `Analyserar ${hoursAvailable} timmar framåt (inkl. moms, nätavgift och skatt).`;
+
+      const ev = findCheapestWindow(futureData, 4);
+      const app = findCheapestWindow(futureData, 2);
+
+      const recEl = document.getElementById('recommendations');
+      recEl.innerHTML = `
+        <div class="highlight-box box-ev">
+          <div class="highlight-title" style="color: #1d4ed8;">🚗 Elbilsladdning (4 timmar)</div>
+          <div>Kör mellan: <strong>${formatTime(ev.startTime)}</strong> – <strong>${formatTime(ev.endTime)}</strong></div>
+          <div class="price-tag">${ev.avgPrice.toFixed(1)} öre/kWh</div>
+        </div>
+
+        <div class="highlight-box box-appliance">
+          <div class="highlight-title" style="color: #15803d;">🧺 Tvätt & Disk (2 timmar)</div>
+          <div>Kör mellan: <strong>${formatTime(app.startTime)}</strong> – <strong>${formatTime(app.endTime)}</strong></div>
+          <div class="price-tag">${app.avgPrice.toFixed(1)} öre/kWh</div>
+        </div>
+      `;
+
+      // Fast info om avtalet längst ner som referens
+      const fixedExtra = ((currentProfile.margin + currentProfile.grid + currentProfile.energyTax) * 1.25).toFixed(1);
+      document.getElementById('contractInfo').innerHTML = `
+        Fasta påslag för vald profil: <strong>${fixedExtra} öre/kWh</strong> inkl. moms (nät + påslag + skatt).
+      `;
+    }
+
+    function onProfileChange() {
+      const selected = document.getElementById('profileSelect').value;
+      currentProfile = profiles[selected];
+      localStorage.setItem('selectedProfile', selected);
+      updateView();
+    }
+
+    async function init() {
+      const saved = localStorage.getItem('selectedProfile');
+      if (saved && profiles[saved]) {
+        currentProfile = profiles[saved];
+        document.getElementById('profileSelect').value = saved;
+      }
+      cachedPrices = await fetchAllPrices();
+      updateView();
+    }
+
+    init();
+  </script>
+</body>
+</html>
